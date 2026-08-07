@@ -1,0 +1,36 @@
+# Локальная разработка: только зависимости.
+# Сам бот запускается через `npm run dev` в polling-режиме — ngrok не нужен.
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: luma-postgres
+    environment:
+      POSTGRES_USER: luma
+      POSTGRES_PASSWORD: luma
+      POSTGRES_DB: luma
+    ports:
+      # 5432/5433 заняты другими локальными проектами.
+      - '5434:5432'
+    volumes:
+      - luma-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U luma -d luma']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: luma-redis
+    command: redis-server --save '' --appendonly no
+    ports:
+      # 6379/6380 заняты другими локальными проектами.
+      - '6381:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  luma-pgdata:

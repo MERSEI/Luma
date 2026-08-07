@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+# Только фейковые значения — нужен, чтобы тесты поднимались из чистого клона.
+!.env.test
+*.log
+coverage/
+.DS_Store
+src/generated/
