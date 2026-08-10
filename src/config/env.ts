@@ -49,8 +49,10 @@ const schema = z
     REDIS_URL: z.string().min(1),
 
     GEMINI_API_KEY: z.string().min(1, 'GEMINI_API_KEY обязателен — https://aistudio.google.com/apikey'),
-    GEMINI_MODEL_TRIAL: z.string().default('gemini-2.5-flash-lite'),
-    GEMINI_MODEL_PAID: z.string().default('gemini-2.5-flash-lite'),
+    // gemini-2.5-flash-lite отключена для новых проектов (подтверждено 2026-08-10 —
+    // см. docs/pricing.md). Дефолт — следующая по цене доступная модель.
+    GEMINI_MODEL_TRIAL: z.string().default('gemini-3.1-flash-lite'),
+    GEMINI_MODEL_PAID: z.string().default('gemini-3.1-flash-lite'),
     GEMINI_TIMEOUT_MS: z.coerce.number().int().positive().default(20_000),
     GEMINI_MAX_RETRIES: z.coerce.number().int().min(0).max(5).default(2),
 

@@ -8,6 +8,7 @@ import { dedupMiddleware } from './middlewares/dedup.js';
 import { userMiddleware } from './middlewares/user.js';
 import { consentGateMiddleware } from './middlewares/consentGate.js';
 import { startComposer } from './commands/start.js';
+import { chatComposer } from './commands/chat.js';
 
 /** Telegram отвечает 403, когда пользователь заблокировал бота. */
 const FORBIDDEN = 403;
@@ -23,6 +24,7 @@ export function createBot(): Bot<LumaContext> {
   bot.use(consentGateMiddleware);
 
   bot.use(startComposer);
+  bot.use(chatComposer);
 
   bot.catch(async ({ ctx, error }) => {
     const userId = (ctx as Partial<LumaContext>).dbUser?.id;

@@ -6,10 +6,13 @@ import { disconnectDb } from './db/client.js';
 import { disconnectRedis } from './infra/redis.js';
 import { drainTasks } from './infra/tasks.js';
 import { cleanupProcessedUpdates } from './bot/middlewares/dedup.js';
+import { assertKnownModels } from './domain/chat/geminiClient.js';
 
 const CLEANUP_INTERVAL_MS = 3_600_000; // раз в час
 
 async function main(): Promise<void> {
+  assertKnownModels();
+
   const bot = createBot();
   const app = createServer(bot);
 

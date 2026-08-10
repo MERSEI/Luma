@@ -74,3 +74,89 @@ export async function getBalance(userId: string): Promise<number> {
   });
   return rows.reduce((sum, r) => sum + r.balance, 0);
 }
+
+/**
+ * Какой entitlement спишется следующим (без мутации) — нужно знать ДО вызова Gemini,
+ * чтобы выбрать GEMINI_MODEL_TRIAL/GEMINI_MODEL_PAID (pricing.md §4: модель может отличаться
+ * для trial и платных сообщений). Та же сортировка, что в spendCredit.
+ */
+export async function peekNextEntitlementKind(userId: string): Promise<'trial' | 'purchased' | null> {
+  const candidates = await prisma.entitlement.findMany({
+    where: {
+      userId,
+      status: 'active',
+      balance: { gt: 0 },
+      OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+    },
+    select: { kind: true, expiresAt: true, createdAt: true },
+  });
+
+  const [target] = candidates.sort((a, b) => {
+    if (a.kind !== b.kind) return a.kind === 'trial' ? -1 : 1;
+    const aExpiry = a.expiresAt?.getTime() ?? Infinity;
+    const bExpiry = b.expiresAt?.getTime() ?? Infinity;
+    if (aExpiry !== bExpiry) return aExpiry - bExpiry;
+    return a.createdAt.getTime() - b.createdAt.getTime();
+  });
+
+  return target?.kind ?? null;
+}
+
+/**
+ * Списание 1 кредита за одно сообщение. Идемпотентно по messageId — при ретрае (например,
+ * повторной обработке того же update) второй раз не спишет (аналог grantTrial).
+ *
+ * Порядок списания — decisions.md §4: сначала trial, затем purchased по expiresAt ASC
+ * NULLS LAST, при равенстве — по createdAt ASC (сначала тратим то, что раньше сгорит).
+ *
+ * Возвращает false, если ни у одного entitlement нет доступного баланса — вызывающий код
+ * обязан проверить getBalance() > 0 до вызова Gemini, так что это должно быть редкой гонкой,
+ * а не штатным путём.
+ */
+export async function spendCredit(userId: string, messageId: string): Promise<boolean> {
+  const idempotencyKey = `debit:${messageId}`;
+
+  try {
+    return await prisma.$transaction(async (tx) => {
+      const existing = await tx.ledgerEntry.findUnique({ where: { idempotencyKey } });
+      if (existing) return true;
+
+      const candidates = await tx.entitlement.findMany({
+        where: {
+          userId,
+          status: 'active',
+          balance: { gt: 0 },
+          OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+        },
+      });
+
+      const [target] = candidates.sort((a, b) => {
+        if (a.kind !== b.kind) return a.kind === 'trial' ? -1 : 1;
+        const aExpiry = a.expiresAt?.getTime() ?? Infinity;
+        const bExpiry = b.expiresAt?.getTime() ?? Infinity;
+        if (aExpiry !== bExpiry) return aExpiry - bExpiry;
+        return a.createdAt.getTime() - b.createdAt.getTime();
+      });
+
+      if (!target) return false;
+
+      const newBalance = target.balance - 1;
+      await tx.entitlement.update({
+        where: { id: target.id },
+        data: { balance: newBalance, status: newBalance === 0 ? 'exhausted' : target.status },
+      });
+
+      await tx.ledgerEntry.create({
+        data: { userId, entitlementId: target.id, eventType: 'debit', delta: -1, idempotencyKey },
+      });
+
+      return true;
+    });
+  } catch (err) {
+    if (isUniqueViolation(err)) {
+      logger.debug({ userId, messageId }, 'Повторное списание предотвращено идемпотентным ключом');
+      return true;
+    }
+    throw err;
+  }
+}
